@@ -116,12 +116,11 @@ func main() {
   log.Fatal("Error connecting to database:", err)
  }
 
- userController := &UserController{
-  DB:   db,
-  View: htmlView,
+ genericController := &GenericController{
+	 DB: db,
  }
 
- r.HandleFunc("/myAddress", userController)
+ r.HandleFunc("/myAddress", genericController)
 
  server := &http.Server{
   Addr:    ":8080",
