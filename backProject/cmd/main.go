@@ -120,7 +120,7 @@ func main() {
 
 	htmlView := NewHTMLView()
 
-	db, err := sql.Open("mysql", "root:password@tcp(127.0.0.1:3306)/shedule") // Update with your database credentials
+	db, err := sql.Open("mysql", "root:password@tcp(127.0.0.1:3306)/shedule")
 	if err != nil {
 		log.Fatal("Error connecting to database:", err)
 	}
