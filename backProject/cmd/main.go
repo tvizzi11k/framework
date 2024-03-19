@@ -3,10 +3,11 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	_ "github.com/go-sql-driver/mysql"
 	"html/template"
 	"log"
 	"net/http"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 type Controller interface {
@@ -14,7 +15,7 @@ type Controller interface {
 }
 
 type Model interface {
-	Save() error
+	Save(db Database) error
 }
 
 type Router struct {
@@ -49,29 +50,24 @@ type User struct {
 	Email    string
 }
 
-func (u *User) Save() error {
-	db, err := sql.Open("mysql", "root@tcp(127.0.0.1:3306)/shedule") // сюда вносим данные о бд
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if dErr := db.Close(); dErr != nil {
-			log.Println("Error closing db:", dErr)
-		}
-	}()
-	db.SetMaxOpenConns(20)
-	db.SetMaxIdleConns(10)
+type Database interface {
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}
 
-	_, err = db.Exec("INSERT INTO users (username, email) VALUES (?, ?)", u.Username, u.Email)
+func (u *User) Save(db Database) error {
+	result, err := db.Exec("INSERT INTO users (username, email) VALUES (?, ?)", u.Username, u.Email)
 	if err != nil {
 		return err
 	}
+	lastInsertID, _ := result.LastInsertId()
+	u.ID = int(lastInsertID)
 	return nil
 }
 
 type UserController struct {
-	Model Model
-	View  View
+	DB   Database
+	View View
 }
 
 func (uc *UserController) HandleRequest(w http.ResponseWriter, req *http.Request) {
@@ -82,14 +78,14 @@ func (uc *UserController) HandleRequest(w http.ResponseWriter, req *http.Request
 		Username: username,
 		Email:    email,
 	}
-	if err := newUser.Save(); err != nil {
+	if err := newUser.Save(uc.DB); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	err := uc.View.Render(w, nil)
+	err := uc.View.Render(w, newUser)
 	if err != nil {
-		http.Error(w, "Error rend html temp", http.StatusInternalServerError)
+		http.Error(w, "Error rendering HTML template", http.StatusInternalServerError)
 	}
 }
 
@@ -119,34 +115,19 @@ func NewHTMLView() *HTMLView {
 	}
 }
 
-type AddUserController struct {
-	Model Model
-}
-
-func (ac *AddUserController) HandleRequest(w http.ResponseWriter, req *http.Request) {
-	username := req.FormValue("username")
-	email := req.FormValue("email")
-
-	newUser := &User{
-		Username: username,
-		Email:    email,
-	}
-	if err := newUser.Save(); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	http.Redirect(w, req, "/myAddress", http.StatusFound)
-}
-
 func main() {
 	r := NewRouter()
 
 	htmlView := NewHTMLView()
 
+	db, err := sql.Open("mysql", "root:password@tcp(127.0.0.1:3306)/shedule") // Update with your database credentials
+	if err != nil {
+		log.Fatal("Error connecting to database:", err)
+	}
+
 	userController := &UserController{
-		Model: &User{},
-		View:  htmlView,
+		DB:   db,
+		View: htmlView,
 	}
 
 	r.HandleFunc("/myAddress", userController)
@@ -156,13 +137,8 @@ func main() {
 		Handler: r,
 	}
 
-	addUserController := &AddUserController{
-		Model: &User{},
-	}
-	r.HandleFunc("/addUser", addUserController)
-
 	fmt.Println("Starting server on port 8080")
-	err := server.ListenAndServe()
+	err = server.ListenAndServe()
 	if err != nil {
 		log.Fatal("Server error", err)
 	}
